@@ -1,3 +1,11 @@
+---
+title: TheMovieProviderBot
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
 <p align="center">
   <img src="https://telegra.ph/file/6fa70325813885809a64a.jpg" alt="The Movie Provider Bot Logo">
 </p>
