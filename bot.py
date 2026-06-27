@@ -82,17 +82,20 @@ async def Lazy_start():
     today = date.today()
     now = datetime.now(tz)
     time = now.strftime("%H:%M:%S %p")
+        tz = pytz.timezone('Asia/Kolkata')
+    today = date.today()
+    now = datetime.now(tz)
+    time = now.strftime("%H:%M:%S %p")
     try:
-    await LazyPrincessBot.get_chat(LOG_CHANNEL)  # warm up peer cache
-    await LazyPrincessBot.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(today, time))
-except Exception as e:
-    logging.warning(f"Could not send startup message to LOG_CHANNEL: {e}")
+        await LazyPrincessBot.get_chat(LOG_CHANNEL)
+        await LazyPrincessBot.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(today, time))
+    except Exception as e:
+        logging.warning(f"Could not send startup message to LOG_CHANNEL: {e}")
     app = web.AppRunner(await web_server())
     await app.setup()
     bind_address = "0.0.0.0"
     await web.TCPSite(app, bind_address, PORT).start()
     await idle()
-
 
 if __name__ == '__main__':
     try:
