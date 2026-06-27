@@ -1,13 +1,16 @@
 import random
 import asyncio
+import logging
 from pyrogram import Client, filters
 from lazybot import LazyPrincessBot
 
-# Big animated emojis sent as standalone messages
-MOVIE_ANIMATIONS = ["🎬", "🎥", "🍿", "⭐", "🔥", "🎞", "🎦"]
+logger = logging.getLogger(__name__)
 
-# Emoji reactions added to the message
-REACTIONS = ["🔥", "❤", "👍", "🎉", "⚡", "👏", "😍", "💯"]
+# ONLY valid Telegram reaction emojis (not all emojis work as reactions)
+REACTIONS = ["👍", "❤", "🔥", "🥰", "👏", "😁", "🤩", "🎉", "💯", "⚡"]
+
+# Big animated emojis sent as a message (any emoji works here)
+MOVIE_ANIMATIONS = ["🎬", "🎥", "🍿", "⭐", "🔥", "🎦"]
 
 
 @LazyPrincessBot.on_message(
@@ -18,23 +21,20 @@ REACTIONS = ["🔥", "❤", "👍", "🎉", "⚡", "👏", "😍", "💯"]
     ])
 )
 async def auto_animate(client, message):
+    # --- Reaction ---
     try:
-        # React to the message (Pyrogram 2.0.x style — plain emoji string)
         await client.send_reaction(
             chat_id=message.chat.id,
             message_id=message.id,
             emoji=random.choice(REACTIONS)
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Reaction failed: {e}")
 
+    # --- Big animated emoji reply ---
     try:
-        # Send a big animated emoji as a reply
-        emoji = random.choice(MOVIE_ANIMATIONS)
-        anim_msg = await message.reply(emoji)
-
-        # Auto-delete after 4 seconds so chat stays clean
+        anim_msg = await message.reply(random.choice(MOVIE_ANIMATIONS))
         await asyncio.sleep(4)
         await anim_msg.delete()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Animation failed: {e}")
