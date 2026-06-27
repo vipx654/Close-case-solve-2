@@ -1,4 +1,3 @@
-
 import sys
 import glob
 import importlib
@@ -7,7 +6,6 @@ from pyrogram import idle
 import logging
 import logging.config
 
-# Get logging configurations
 logging.config.fileConfig('logging.conf')
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
@@ -19,7 +17,6 @@ logging.basicConfig(
 logging.getLogger("aiohttp").setLevel(logging.ERROR)
 logging.getLogger("aiohttp.web").setLevel(logging.ERROR)
 
-
 from pyrogram import Client, __version__
 from pyrogram.raw.all import layer
 from database.ia_filterdb import Media
@@ -28,8 +25,8 @@ from info import *
 from utils import temp
 from typing import Union, Optional, AsyncGenerator
 from pyrogram import types
-from Script import script 
-from datetime import date, datetime 
+from Script import script
+from datetime import date, datetime
 import pytz
 from aiohttp import web
 from plugins import web_server
@@ -82,10 +79,6 @@ async def Lazy_start():
     today = date.today()
     now = datetime.now(tz)
     time = now.strftime("%H:%M:%S %p")
-        tz = pytz.timezone('Asia/Kolkata')
-    today = date.today()
-    now = datetime.now(tz)
-    time = now.strftime("%H:%M:%S %p")
     try:
         await LazyPrincessBot.get_chat(LOG_CHANNEL)
         await LazyPrincessBot.send_message(chat_id=LOG_CHANNEL, text=script.RESTART_TXT.format(today, time))
@@ -96,6 +89,7 @@ async def Lazy_start():
     bind_address = "0.0.0.0"
     await web.TCPSite(app, bind_address, PORT).start()
     await idle()
+
 
 if __name__ == '__main__':
     try:
