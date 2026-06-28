@@ -2221,6 +2221,10 @@ async def auto_filter(client, msg, spoll=False):
             hehe = await message.reply_photo(photo=imdb.get('poster'), caption=cap, reply_markup=InlineKeyboardMarkup(btn))
             await m.delete()
             try:
+                await hehe.react("🎬")
+            except:
+                pass
+            try:
                 if settings['auto_delete']:
                     await asyncio.sleep(300)
                     await hehe.delete()
@@ -2306,6 +2310,10 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
+            try:
+                await k.react("😔")
+            except:
+                pass
             await asyncio.sleep(30)
             await k.delete()
             return
@@ -2343,6 +2351,10 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
+            try:
+                await k.react("😔")
+            except:
+                pass
             await asyncio.sleep(30)
             await k.delete()
             return
@@ -2358,6 +2370,10 @@ async def advantage_spell_chok(client, msg):
             text=script.CUDNT_FND.format(mv_rqst),
             reply_markup=InlineKeyboardMarkup(btn)
         )
+        try:
+            await spell_check_del.react("🔍")
+        except:
+            pass
         try:
             if settings['auto_delete']:
                 await asyncio.sleep(60)
@@ -2384,6 +2400,10 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
+            try:
+                await k.react("😔")
+            except:
+                pass
             await asyncio.sleep(30)
             await k.delete()
             return
@@ -2399,6 +2419,10 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
+            try:
+                await k.react("😔")
+            except:
+                pass
             await asyncio.sleep(30)
             await k.delete()
             return
