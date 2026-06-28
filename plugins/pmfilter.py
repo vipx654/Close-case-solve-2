@@ -2105,11 +2105,18 @@ async def auto_filter(client, msg, spoll=False):
                 # Search torrents directly
                 from plugins.torrent_search import search_torrents, format_torrent_results, post_to_channel
                 _tor_status = await message.reply_text(
-                    "🌐 <b>Not found. Searching torrent sources...</b>"
+                    f"🌐 <b>Not in database. Searching torrents for:</b> <code>{search}</code>"
                 )
-                yts_res, l337x_res = await search_torrents(search)
+                try:
+                    # Try cleaned query first, then raw text as fallback
+                    yts_res, l337x_res = await search_torrents(search)
+                    if not yts_res and not l337x_res and search.lower() != message.text.lower():
+                        yts_res, l337x_res = await search_torrents(message.text)
+                    tor_text, tor_markup = format_torrent_results(yts_res, l337x_res, search or message.text)
+                except Exception as tor_err:
+                    logger.exception(f"Torrent search error: {tor_err}")
+                    tor_text, tor_markup = None, None
                 await _tor_status.delete()
-                tor_text, tor_markup = format_torrent_results(yts_res, l337x_res, search)
                 if tor_text:
                     await post_to_channel(client, tor_text, tor_markup)
                     await message.reply_text(
@@ -2118,8 +2125,14 @@ async def auto_filter(client, msg, spoll=False):
                         disable_web_page_preview=True,
                     )
                     return
-                if settings["spell_check"]:
-                    return await advantage_spell_chok(client, msg)
+                # Nothing found anywhere — show not-found message
+                button = [[InlineKeyboardButton("📝 ʀᴇǫᴜᴇꜱᴛ ʜᴇʀᴇ", url=f"https://t.me/from_Admins_desk")]]
+                k = await message.reply_text(
+                    text=script.I_CUDNT.format(message.text),
+                    reply_markup=InlineKeyboardMarkup(button)
+                )
+                await asyncio.sleep(30)
+                await k.delete()
                 return
         else:
             return
