@@ -310,11 +310,21 @@ async def advantage_spoll_choker(bot, query):
             else:
                 reqstr1 = query.from_user.id if query.from_user else 0
                 reqstr = await bot.get_users(reqstr1)
-                if NO_RESULTS_MSG:
-                    await bot.send_message(chat_id=LOG_CHANNEL, text=(script.NORSLTS.format(reqstr.id, reqstr.mention, movie)))
-                k = await query.message.edit(script.MVE_NT_FND)
-                await asyncio.sleep(10)
-                await k.delete()
+                # Search torrents directly
+                from plugins.torrent_search import search_torrents, format_torrent_results, post_to_channel
+                _ts = await query.message.reply_text("🌐 <b>Not found. Searching torrent sources...</b>")
+                yts_r, l337x_r = await search_torrents(movie)
+                await _ts.delete()
+                tor_text, tor_markup = format_torrent_results(yts_r, l337x_r, movie)
+                if tor_text:
+                    await post_to_channel(bot, tor_text, tor_markup)
+                    await query.message.reply_text(tor_text, reply_markup=tor_markup, disable_web_page_preview=True)
+                else:
+                    if NO_RESULTS_MSG:
+                        await bot.send_message(chat_id=LOG_CHANNEL, text=(script.NORSLTS.format(reqstr.id, reqstr.mention, movie)))
+                    k = await query.message.edit(script.MVE_NT_FND)
+                    await asyncio.sleep(10)
+                    await k.delete()
 #Qualities 
 @Client.on_callback_query(filters.regex(r"^qualities#"))
 async def qualities_cb_handler(client: Client, query: CallbackQuery):
@@ -2092,12 +2102,25 @@ async def auto_filter(client, msg, spoll=False):
             settings = await get_settings(message.chat.id)
             if not files:
                 await m.delete()
+                # Search torrents directly
+                from plugins.torrent_search import search_torrents, format_torrent_results, post_to_channel
+                _tor_status = await message.reply_text(
+                    "🌐 <b>Not found. Searching torrent sources...</b>"
+                )
+                yts_res, l337x_res = await search_torrents(search)
+                await _tor_status.delete()
+                tor_text, tor_markup = format_torrent_results(yts_res, l337x_res, search)
+                if tor_text:
+                    await post_to_channel(client, tor_text, tor_markup)
+                    await message.reply_text(
+                        tor_text,
+                        reply_markup=tor_markup,
+                        disable_web_page_preview=True,
+                    )
+                    return
                 if settings["spell_check"]:
                     return await advantage_spell_chok(client, msg)
-                else:
-                    # if NO_RESULTS_MSG:
-                    #     await client.send_message(chat_id=LOG_CHANNEL, text=(script.NORSLTS.format(reqstr.id, reqstr.mention, search)))
-                    return
+                return
         else:
             return
     else:
