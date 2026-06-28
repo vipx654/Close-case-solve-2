@@ -313,15 +313,57 @@ async def advantage_spoll_choker(bot, query):
                 # Search torrents directly
                 from plugins.torrent_search import search_torrents, format_torrent_results, post_to_channel
                 _ts = await query.message.reply_text("🌐 <b>Not found. Searching torrent sources...</b>")
-                yts_r, l337x_r = await search_torrents(movie)
+                # LOG: torrent search triggered
+                try:
+                    await bot.send_message(
+                        chat_id=LOG_CHANNEL,
+                        text=(
+                            f"#TorrentSearch 🌐\n\n"
+                            f"👤 User: {reqstr.mention} (<code>{reqstr.id}</code>)\n"
+                            f"🔍 Query: <code>{movie}</code>\n"
+                            f"📍 Chat: <code>{query.message.chat.id}</code>\n"
+                            f"⏱ Status: Searching YTS + 1337x..."
+                        )
+                    )
+                except Exception:
+                    pass
+                try:
+                    yts_r, l337x_r = await search_torrents(movie)
+                    tor_text, tor_markup = format_torrent_results(yts_r, l337x_r, movie)
+                    # LOG: results
+                    try:
+                        await bot.send_message(
+                            chat_id=LOG_CHANNEL,
+                            text=(
+                                f"#TorrentResult ✅\n\n"
+                                f"👤 User: {reqstr.mention} (<code>{reqstr.id}</code>)\n"
+                                f"🔍 Query: <code>{movie}</code>\n"
+                                f"🎬 YTS hits: <b>{len(yts_r)}</b>\n"
+                                f"🔎 1337x hits: <b>{len(l337x_r)}</b>\n"
+                                f"{'✅ Sent to user' if tor_text else '❌ No results to show'}"
+                            )
+                        )
+                    except Exception:
+                        pass
+                except Exception as tor_err:
+                    tor_text, tor_markup = None, None
+                    try:
+                        await bot.send_message(
+                            chat_id=LOG_CHANNEL,
+                            text=(
+                                f"#TorrentError ❌\n\n"
+                                f"👤 User: {reqstr.mention} (<code>{reqstr.id}</code>)\n"
+                                f"🔍 Query: <code>{movie}</code>\n"
+                                f"⚠️ Error: <code>{tor_err}</code>"
+                            )
+                        )
+                    except Exception:
+                        pass
                 await _ts.delete()
-                tor_text, tor_markup = format_torrent_results(yts_r, l337x_r, movie)
                 if tor_text:
                     await post_to_channel(bot, tor_text, tor_markup)
                     await query.message.reply_text(tor_text, reply_markup=tor_markup, disable_web_page_preview=True)
                 else:
-                    if NO_RESULTS_MSG:
-                        await bot.send_message(chat_id=LOG_CHANNEL, text=(script.NORSLTS.format(reqstr.id, reqstr.mention, movie)))
                     k = await query.message.edit(script.MVE_NT_FND)
                     await asyncio.sleep(10)
                     await k.delete()
@@ -2107,15 +2149,59 @@ async def auto_filter(client, msg, spoll=False):
                 _tor_status = await message.reply_text(
                     f"🌐 <b>Not in database. Searching torrents for:</b> <code>{search}</code>"
                 )
+                _user = message.from_user
+                _uid = _user.id if _user else 0
+                _umention = _user.mention if _user else str(_uid)
+                # LOG: torrent search triggered
+                try:
+                    await client.send_message(
+                        chat_id=LOG_CHANNEL,
+                        text=(
+                            f"#TorrentSearch 🌐\n\n"
+                            f"👤 User: {_umention} (<code>{_uid}</code>)\n"
+                            f"🔍 Query: <code>{search}</code>\n"
+                            f"📍 Chat: <code>{message.chat.id}</code>\n"
+                            f"⏱ Status: Searching YTS + 1337x..."
+                        )
+                    )
+                except Exception:
+                    pass
                 try:
                     # Try cleaned query first, then raw text as fallback
                     yts_res, l337x_res = await search_torrents(search)
                     if not yts_res and not l337x_res and search.lower() != message.text.lower():
                         yts_res, l337x_res = await search_torrents(message.text)
                     tor_text, tor_markup = format_torrent_results(yts_res, l337x_res, search or message.text)
+                    # LOG: results
+                    try:
+                        await client.send_message(
+                            chat_id=LOG_CHANNEL,
+                            text=(
+                                f"#TorrentResult {'✅' if tor_text else '❌'}\n\n"
+                                f"👤 User: {_umention} (<code>{_uid}</code>)\n"
+                                f"🔍 Query: <code>{search}</code>\n"
+                                f"🎬 YTS hits: <b>{len(yts_res)}</b>\n"
+                                f"🔎 1337x hits: <b>{len(l337x_res)}</b>\n"
+                                f"{'✅ Results sent to user' if tor_text else '❌ Nothing found on any source'}"
+                            )
+                        )
+                    except Exception:
+                        pass
                 except Exception as tor_err:
                     logger.exception(f"Torrent search error: {tor_err}")
                     tor_text, tor_markup = None, None
+                    try:
+                        await client.send_message(
+                            chat_id=LOG_CHANNEL,
+                            text=(
+                                f"#TorrentError ❌\n\n"
+                                f"👤 User: {_umention} (<code>{_uid}</code>)\n"
+                                f"🔍 Query: <code>{search}</code>\n"
+                                f"⚠️ Error: <code>{tor_err}</code>"
+                            )
+                        )
+                    except Exception:
+                        pass
                 await _tor_status.delete()
                 if tor_text:
                     await post_to_channel(client, tor_text, tor_markup)
