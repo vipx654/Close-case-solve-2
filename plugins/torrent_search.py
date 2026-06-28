@@ -9,6 +9,11 @@ from info import ADMINS, LOG_CHANNEL, CHANNELS
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# In-memory store for YTS magnet links (keyed by short hash)
+# Telegram does NOT allow magnet: scheme in inline URL buttons, so we cache
+# magnets here and deliver them via callback_data.
+_YTS_MAGNETS: dict[str, str] = {}
+
 YTS_API = "https://yts.mx/api/v2/list_movies.json"
 L337X_BASE = "https://www.1337x.to"
 HEADERS = {
@@ -182,10 +187,19 @@ async def search_torrents(query: str):
 
 # ─── Format results as Telegram message ───────────────────────────────────────
 
+def _magnet_key(magnet: str) -> str:
+    """Return a short key for storing a magnet in _YTS_MAGNETS."""
+    import hashlib
+    return hashlib.md5(magnet.encode()).hexdigest()[:16]
+
+
 def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
     """
     Build message text + inline keyboard from torrent results.
     Returns (text, reply_markup) or (None, None) if nothing found.
+
+    NOTE: Telegram does NOT allow magnet: URLs in inline buttons.
+    YTS magnets are stored in _YTS_MAGNETS and delivered via callback.
     """
     if not yts and not l337x:
         return None, None
@@ -196,7 +210,10 @@ def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
     if yts:
         lines.append("━━━━ 🎬 YTS ━━━━")
         for movie in yts[:3]:
-            stars = "⭐" * round(float(movie.get("rating") or 0) / 2)
+            try:
+                stars = "⭐" * round(float(movie.get("rating") or 0) / 2)
+            except Exception:
+                stars = ""
             lines.append(
                 f"\n<b>{movie['title']} ({movie['year']})</b>\n"
                 f"{stars} {movie.get('rating', 'N/A')}/10  |  {movie.get('genres', '')}"
@@ -210,11 +227,12 @@ def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
                 label = f"{emoji} {q} [{sz}] 🌱{seeds}"
                 magnet = t.get("magnet", "")
                 if magnet:
+                    key = _magnet_key(magnet)
+                    _YTS_MAGNETS[key] = magnet
                     row.append(
-                        InlineKeyboardButton(label, url=magnet)
+                        InlineKeyboardButton(label, callback_data=f"yts_magnet#{key}")
                     )
             if row:
-                # Telegram limits url buttons; split into rows of 2
                 for i in range(0, len(row), 2):
                     buttons.append(row[i : i + 2])
 
@@ -231,7 +249,6 @@ def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
                 f"\n{seed_icon} <b>{item['title'][:60]}</b>\n"
                 f"   Size: {size}  Seeds: {seeds}"
             )
-            # Detail page button (magnet fetched on click via callback)
             buttons.append([
                 InlineKeyboardButton(
                     f"🔗 Get link — {item['title'][:35]}",
@@ -276,6 +293,20 @@ async def send_magnet_link(client, query):
         )
     else:
         await query.answer("❌ Could not fetch magnet link. Try opening the page manually.", show_alert=True)
+
+
+@Client.on_callback_query(filters.regex(r"^yts_magnet#"))
+async def send_yts_magnet(client, query):
+    key = query.data.split("#", 1)[1]
+    magnet = _YTS_MAGNETS.get(key)
+    if magnet:
+        await query.answer("Here's your magnet link!", show_alert=False)
+        await query.message.reply_text(
+            f"🧲 <b>YTS Magnet Link:</b>\n\n<code>{magnet}</code>",
+            quote=True,
+        )
+    else:
+        await query.answer("❌ Link expired. Search again to get a fresh one.", show_alert=True)
 
 
 @Client.on_callback_query(filters.regex(r"^torrent_close$"))
