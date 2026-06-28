@@ -76,6 +76,17 @@ async def get_shortlink(url):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, get_shortlink_sync, url)
 
+
+async def _send_emoji_anim(client, chat_id, emoji):
+    """Send a single animated emoji then delete after 2s"""
+    try:
+        m = await client.send_message(chat_id, emoji)
+        await asyncio.sleep(2)
+        await m.delete()
+    except:
+        pass
+
+
 @Client.on_message(filters.group | filters.private & filters.text & filters.incoming)
 async def give_filter(client, message):
     if message.chat.id != SUPPORT_CHAT_ID:
@@ -2220,10 +2231,7 @@ async def auto_filter(client, msg, spoll=False):
         try:
             hehe = await message.reply_photo(photo=imdb.get('poster'), caption=cap, reply_markup=InlineKeyboardMarkup(btn))
             await m.delete()
-            try:
-                await hehe.react("🎬")
-            except:
-                pass
+            asyncio.get_event_loop().create_task(_send_emoji_anim(client, message.chat.id, "🎬"))
             try:
                 if settings['auto_delete']:
                     await asyncio.sleep(300)
@@ -2310,10 +2318,7 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
-            try:
-                await k.react("😔")
-            except:
-                pass
+            asyncio.get_event_loop().create_task(_send_emoji_anim(client, message.chat.id if hasattr(message, "chat") else msg.chat.id, "😔"))
             await asyncio.sleep(30)
             await k.delete()
             return
@@ -2351,10 +2356,7 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
-            try:
-                await k.react("😔")
-            except:
-                pass
+            asyncio.get_event_loop().create_task(_send_emoji_anim(client, message.chat.id if hasattr(message, "chat") else msg.chat.id, "😔"))
             await asyncio.sleep(30)
             await k.delete()
             return
@@ -2370,10 +2372,7 @@ async def advantage_spell_chok(client, msg):
             text=script.CUDNT_FND.format(mv_rqst),
             reply_markup=InlineKeyboardMarkup(btn)
         )
-        try:
-            await spell_check_del.react("🔍")
-        except:
-            pass
+        asyncio.get_event_loop().create_task(_send_emoji_anim(client, msg.chat.id, "🔍"))
         try:
             if settings['auto_delete']:
                 await asyncio.sleep(60)
@@ -2400,10 +2399,7 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
-            try:
-                await k.react("😔")
-            except:
-                pass
+            asyncio.get_event_loop().create_task(_send_emoji_anim(client, message.chat.id if hasattr(message, "chat") else msg.chat.id, "😔"))
             await asyncio.sleep(30)
             await k.delete()
             return
@@ -2419,10 +2415,7 @@ async def advantage_spell_chok(client, msg):
                 text=script.I_CUDNT.format(mv_rqst),
                 reply_markup=InlineKeyboardMarkup(button)
             )
-            try:
-                await k.react("😔")
-            except:
-                pass
+            asyncio.get_event_loop().create_task(_send_emoji_anim(client, message.chat.id if hasattr(message, "chat") else msg.chat.id, "😔"))
             await asyncio.sleep(30)
             await k.delete()
             return
