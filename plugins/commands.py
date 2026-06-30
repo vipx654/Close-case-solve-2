@@ -37,7 +37,7 @@ async def start(client, message):
             total=await client.get_chat_members_count(message.chat.id)
             await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))       
             await db.add_chat(message.chat.id, message.chat.title)
-                        return
+            return
     if len(message.command) == 2 and message.from_user.id not in ADMINS:
         param = message.command[1]
         if any(param.startswith(p) for p in ("file_", "filep_", "short_", "all_", "allfiles_", "sendfiles", "files_", "BATCH", "DSTORE")):
