@@ -37,7 +37,20 @@ async def start(client, message):
             total=await client.get_chat_members_count(message.chat.id)
             await client.send_message(LOG_CHANNEL, script.LOG_TEXT_G.format(message.chat.title, message.chat.id, total, "Unknown"))       
             await db.add_chat(message.chat.id, message.chat.title)
-        return 
+                return
+    # Block non-admins from messaging the bot directly in PM when they include a file/shortlink start parameter
+    user_id = message.from_user.id
+    if len(message.command) == 2 and message.from_user.id not in ADMINS:
+        param = message.command[1]
+        # These are the deep-link patterns that deliver files — block non-admins from using them directly
+        if any(param.startswith(p) for p in ("file_", "filep_", "short_", "all_", "allfiles_", "sendfiles", "files_", "BATCH", "DSTORE")):
+            await message.reply_text(
+                "<b>⚠️ ᴀᴄᴄᴇss ᴅᴇɴɪᴇᴅ !\n\nʏᴏᴜ ᴄᴀɴɴᴏᴛ ᴜꜱᴇ ᴛʜɪs ʟɪɴᴋ ᴅɪʀᴇᴄᴛʟʏ.\n\n📝 ᴘʟᴇᴀꜱᴇ ꜱᴇᴀʀᴄʜ ꜰᴏʀ ꜰɪʟᴇs ᴛʜʀᴏᴜɢʜ ᴏᴜʀ ɢʀᴏᴜᴘ.</b>",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📝 ꜱᴇᴀʀᴄʜ ʜᴇʀᴇ", url=f"https://t.me/MoviesLinkSearchBot2")
+                ]])
+            )
+            return
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
         await client.send_message(LOG_CHANNEL, script.LOG_TEXT_P.format(message.from_user.id, message.from_user.mention))
