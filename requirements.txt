@@ -8,7 +8,6 @@ pyrogram>=2.0.30
  bs4 
  git+https://github.com/Joelkb/cinemagoer 
  shortzy 
- datetime 
  pytz 
  aiohttp
 

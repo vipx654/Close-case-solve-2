@@ -742,7 +742,7 @@ async def settings(client, message):
     if (
             st.status != enums.ChatMemberStatus.ADMINISTRATOR
             and st.status != enums.ChatMemberStatus.OWNER
-            and str(userid) not in ADMINS
+            and int(userid) not in ADMINS
     ):
         return
     
@@ -928,7 +928,7 @@ async def save_template(client, message):
     if (
             st.status != enums.ChatMemberStatus.ADMINISTRATOR
             and st.status != enums.ChatMemberStatus.OWNER
-            and str(userid) not in ADMINS
+            and int(userid) not in ADMINS
     ):
         return
 
@@ -1008,58 +1008,19 @@ async def requests(bot, message):
             await message.reply_text(f"Error: {e}")
             pass
      
-    elif SUPPORT_CHAT_ID == message.chat.id:
-        chat_id = message.chat.id
-        reporter = str(message.from_user.id)
-        mention = message.from_user.mention
-        success = True
-        content = message.text
-        keywords = ["#request", "/request", "#Request", "/Request"]
-        for keyword in keywords:
-            if keyword in content:
-                content = content.replace(keyword, "")
-        try:
-            if REQST_CHANNEL is not None and len(content) >= 3:
-                btn = [[
-                        InlineKeyboardButton('ᴠɪᴇᴡ ʀᴇǫᴜᴇꜱᴛ', url=f"{message.link}"),
-                        InlineKeyboardButton('ꜱʜᴏᴡ ᴏᴘᴛɪᴏɴꜱ', callback_data=f'show_option#{reporter}')
-                      ]]
-                reported_post = await bot.send_message(chat_id=REQST_CHANNEL, text=f"<b>📝 ʀᴇǫᴜᴇꜱᴛ : <u>{content}</u>\n\n📚 ʀᴇᴘᴏʀᴛᴇᴅ ʙʏ : {mention}\n📖 ʀᴇᴘᴏʀᴛᴇʀ ɪᴅ : {reporter}\n\n©️ ᴛʜᴇ ᴍᴏᴠɪᴇ ᴘʀᴏᴠɪᴅᴇʀ™</b>", reply_markup=InlineKeyboardMarkup(btn))
-                success = True
-            elif len(content) >= 3:
-                for admin in ADMINS:
-                    btn = [[
-                        InlineKeyboardButton('ᴠɪᴇᴡ ʀᴇǫᴜᴇꜱᴛ', url=f"{message.link}"),
-                        InlineKeyboardButton('ꜱʜᴏᴡ ᴏᴘᴛɪᴏɴꜱ', callback_data=f'show_option#{reporter}')
-                      ]]
-                    reported_post = await bot.send_message(chat_id=admin, text=f"<b>📝 ʀᴇǫᴜᴇꜱᴛ : <u>{content}</u>\n\n📚 ʀᴇᴘᴏʀᴛᴇᴅ ʙʏ : {mention}\n📖 ʀᴇᴘᴏʀᴛᴇʀ ɪᴅ : {reporter}\n\n©️ ᴛʜᴇ ᴍᴏᴠɪᴇ ᴘʀᴏᴠɪᴅᴇʀ™</b>", reply_markup=InlineKeyboardMarkup(btn))
-                    success = True
-            else:
-                if len(content) < 3:
-                    await message.reply_text("<b>ʏᴏᴜ ᴍᴜꜱᴛ ᴛʏᴘᴇ ᴀʙᴏᴜᴛ ʏᴏᴜʀ ʀᴇǫᴜᴇꜱᴛ [ᴍɪɴɪᴍᴜᴍ 3 ᴄʜᴀʀᴀᴄᴛᴇʀꜱ]. ʀᴇǫᴜᴇꜱᴛꜱ ᴄᴀɴ'ᴛ ʙᴇ ᴇᴍᴘᴛʏ.</b>")
-            if len(content) < 3:
-                success = False
-        except Exception as e:
-            await message.reply_text(f"Error: {e}")
-            pass
-
     else:
         success = False
     
     if success:
-        '''if isinstance(REQST_CHANNEL, (int, str)):
-            channels = [REQST_CHANNEL]
-        elif isinstance(REQST_CHANNEL, list):
-            channels = REQST_CHANNEL
-        for channel in channels:
-            chat = await bot.get_chat(channel)
-        #chat = int(chat)'''
-        link = await bot.create_chat_invite_link(int(REQST_CHANNEL))
-        btn = [[
-                InlineKeyboardButton('ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ', url=link.invite_link),
-                InlineKeyboardButton('ᴠɪᴇᴡ ʀᴇǫᴜᴇꜱᴛ', url=f"{reported_post.link}")
-              ]]
-        await message.reply_text("<b>ʏᴏᴜʀ ʀᴇǫᴜᴇꜱᴛ ʜᴀꜱ ʙᴇᴇɴ ᴀᴅᴅᴇᴅ! ᴘʟᴇᴀꜱᴇ ᴡᴀɪᴛ ꜰᴏʀ ꜱᴏᴍᴇ ᴛɪᴍᴇ.\n\nᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ ꜰɪʀꜱᴛ & ᴠɪᴇᴡ ʀᴇǫᴜᴇꜱᴛ.</b>", reply_markup=InlineKeyboardMarkup(btn))
+        try:
+            link = await bot.create_chat_invite_link(int(REQST_CHANNEL))
+            buttons = [[InlineKeyboardButton('ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ', url=link.invite_link)]]
+            if 'reported_post' in dir() and reported_post is not None:
+                buttons.append([InlineKeyboardButton('ᴠɪᴇᴡ ʀᴇǫᴜᴇsᴛ', url=f"{reported_post.link}")])
+        except Exception as e:
+            logger.warning(f"request invite link failed: {e}")
+            buttons = []
+        await message.reply_text("<b>ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ ʜᴀs ʙᴇᴇɴ ᴀᴅᴅᴇᴅ! ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ ꜰᴏʀ ꜱᴏᴍᴇ ᴛɪᴍᴇ.\n\nᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ ꜰɪʀsᴛ & ᴠɪᴇᴡ ʀᴇǫᴜᴇsᴛ.</b>", reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
     
 @Client.on_message(filters.command("send") & filters.user(ADMINS))
 async def send_msg(bot, message):
@@ -1145,7 +1106,7 @@ async def shortlink(bot, message):
     data = message.text
     userid = message.from_user.id
     user = await bot.get_chat_member(grpid, userid)
-    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
+    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and int(userid) not in ADMINS:
         return await message.reply_text("<b>ʏᴏᴜ ᴅᴏɴ'ᴛ ʜᴀᴠᴇ ᴀᴄᴄᴇꜱꜱ ᴛᴏ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !\nᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ ᴏɴʟʏ ᴡᴏʀᴋꜱ ꜰᴏʀ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴꜱ.</b>")
     else:
         pass
@@ -1212,7 +1173,7 @@ async def ginfo(bot, message):
 #         st = settings['tutorial']
 #     else:
 #         return await message.reply_text("<b>Tutorial Link Not Connected\n\nYou can Connect Using /set_tutorial command</b>")
-    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
+    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and int(userid) not in ADMINS:
         return await message.reply_text("<b>ᴏɴʟʏ ɢʀᴏᴜᴘ ᴏᴡɴᴇʀ ᴏʀ ᴀᴅᴍɪɴ ᴄᴀɴ ᴜꜱᴇ ᴛʜɪꜱ ᴄᴏᴍᴍᴀɴᴅ !</b>")
     else:
         settings = await get_settings(chat_id) #fetching settings for group
@@ -1246,7 +1207,7 @@ async def settutorial(bot, message):
         return
     userid = message.from_user.id
     user = await bot.get_chat_member(grpid, userid)
-    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
+    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and int(userid) not in ADMINS:
         return
     else:
         pass
@@ -1276,7 +1237,7 @@ async def removetutorial(bot, message):
         return
     userid = message.from_user.id
     user = await bot.get_chat_member(grpid, userid)
-    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and str(userid) not in ADMINS:
+    if user.status != enums.ChatMemberStatus.ADMINISTRATOR and user.status != enums.ChatMemberStatus.OWNER and int(userid) not in ADMINS:
         return
     else:
         pass

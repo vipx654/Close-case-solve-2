@@ -64,9 +64,12 @@ async def save_group(bot, message):
                                                  parse_mode=enums.ParseMode.HTML
                 )
                 
-        if settings["auto_delete"]:
+        if settings["auto_delete"] and temp.MELCOW.get('welcome') is not None:
             await asyncio.sleep(300)
-            await (temp.MELCOW['welcome']).delete()
+            try:
+                await (temp.MELCOW['welcome']).delete()
+            except Exception:
+                pass
                 
                
 
@@ -88,7 +91,7 @@ async def leave_a_chat(bot, message):
         reply_markup=InlineKeyboardMarkup(buttons)
         await bot.send_message(
             chat_id=chat,
-            text='<b>ʜᴇʟʟᴏ ꜰʀɪᴇɴᴅꜱ, \nᴍʏ ᴀᴅᴍɪɴ ʜᴀꜱ ᴛᴏʟᴅ ᴍᴇ ᴛᴏ ʟᴇᴀᴠᴇ ꜰʀᴏᴍ ɢʀᴏᴜᴘ, ꜱᴏ ɪ ʜᴀᴠᴇ ᴛᴏ ɢᴏ !/nɪꜰ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴀᴅᴅ ᴍᴇ ᴀɢᴀɪɴ ᴄᴏɴᴛᴀᴄᴛ ꜱᴜᴘᴘᴏʀᴛ.</b>',
+            text='<b>ʜᴇʟʟᴏ ꜰʀɪᴇɴᴅꜱ, \nᴍʏ ᴀᴅᴍɪɴ ʜᴀꜱ ᴛᴏʟᴅ ᴍᴇ ᴛᴏ ʟᴇᴀᴠᴇ ꜰʀᴏᴍ ɢʀᴏᴜᴘ, ꜱᴏ ɪ ʜᴀᴠᴇ ᴛᴏ ɢᴏ !\nɪꜰ ʏᴏᴜ ᴡᴀɴᴛ ᴛᴏ ᴀᴅᴅ ᴍᴇ ᴀɢᴀɪɴ ᴄᴏɴᴛᴀᴄᴛ ꜱᴜᴘᴘᴏʀᴛ.</b>',
             reply_markup=reply_markup,
         )
 
@@ -149,11 +152,14 @@ async def re_enable_chat(bot, message):
     if not sts.get('is_disabled'):
         return await message.reply('This chat is not yet disabled.')
     await db.re_enable_chat(int(chat_))
-    temp.BANNED_CHATS.remove(int(chat_))
+    try:
+        temp.BANNED_CHATS.remove(int(chat_))
+    except ValueError:
+        pass
     await message.reply("Chat Successfully re-enabled")
 
 
-@Client.on_message(filters.command('stats') & filters.incoming)
+@Client.on_message(filters.command('stats') & filters.user(ADMINS) & filters.incoming)
 async def get_ststs(bot, message):
     rju = await message.reply('Fetching stats..')
     total_users = await db.total_users_count()
@@ -245,7 +251,10 @@ async def unban_a_user(bot, message):
         if not jar['is_banned']:
             return await message.reply(f"{k.mention} is not yet banned.")
         await db.remove_ban(k.id)
-        temp.BANNED_USERS.remove(k.id)
+        try:
+            temp.BANNED_USERS.remove(k.id)
+        except ValueError:
+            pass
         await message.reply(f"Successfully unbanned {k.mention}")
 
 

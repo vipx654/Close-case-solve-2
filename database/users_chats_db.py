@@ -174,10 +174,19 @@ class Database:
             if expiry_time is None:
                 # User previously used the free trial, but it has ended.
                 return False
-            elif isinstance(expiry_time, datetime.datetime) and datetime.datetime.now() <= expiry_time:
-                return True
-            else:
-                await self.users.update_one({"id": user_id}, {"$set": {"expiry_time": None}})
+            elif isinstance(expiry_time, datetime.datetime):
+                # Normalise to tz-aware IST. Stored values may be naive (old data or
+                # a host set to UTC); treat naive datetimes as IST to stay consistent
+                # with Premium.py which displays .astimezone(IST).
+                ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                now_ist = datetime.datetime.now(ist)
+                if expiry_time.tzinfo is None:
+                    expiry_aware = expiry_time.replace(tzinfo=ist)
+                else:
+                    expiry_aware = expiry_time.astimezone(ist)
+                if now_ist <= expiry_aware:
+                    return True
+            await self.users.update_one({"id": user_id}, {"$set": {"expiry_time": None}})
         return False
         
     async def update_user(self, user_data):
@@ -213,8 +222,9 @@ class Database:
     async def give_free_trial(self, user_id):
         #await set_free_trial_status(user_id)
         user_id = user_id
-        seconds = 5*60         
-        expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
+        seconds = 24*60*60   # 1 day free trial (was 5 minutes)
+        _ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+        expiry_time = datetime.datetime.now(_ist) + datetime.timedelta(seconds=seconds)
         user_data = {"id": user_id, "expiry_time": expiry_time, "has_free_trial": True}
         await self.users.update_one({"id": user_id}, {"$set": user_data}, upsert=True)
         

@@ -40,27 +40,24 @@ from lazybot.clients import initialize_clients
 
 ppath = "plugins/*.py"
 files = glob.glob(ppath)
-LazyPrincessBot.start()
 loop = asyncio.get_event_loop()
 
 
 async def Lazy_start():
     print('\n')
     print('Initalizing The Movie Provider Bot')
+    # The main client must be started (awaited) here. Calling LazyPrincessBot.start()
+    # at module level without await only creates a coroutine that is never run, so the
+    # client never connects, plugins never load, and get_me() raises ConnectionError.
+    await LazyPrincessBot.start()
     bot_info = await LazyPrincessBot.get_me()
     LazyPrincessBot.username = bot_info.username
     await initialize_clients()
-    for name in files:
-        with open(name) as a:
-            patt = Path(a.name)
-            plugin_name = patt.stem.replace(".py", "")
-            plugins_dir = Path(f"plugins/{plugin_name}.py")
-            import_path = "plugins.{}".format(plugin_name)
-            spec = importlib.util.spec_from_file_location(import_path, plugins_dir)
-            load = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(load)
-            sys.modules["plugins." + plugin_name] = load
-            print("The Movie Provider Imported => " + plugin_name)
+    # NOTE: plugins are auto-loaded by pyrogram at client start because the Client is
+    # created with plugins={"root": "plugins"}. Manually importing them here would import
+    # every module a second time and register every handler twice (double replies).
+    # The import order below (reactions.py etc.) is handled automatically by pyrogram.
+    print("Plugins auto-loaded via pyrogram plugin loader")
     if ON_HEROKU:
         asyncio.create_task(ping_server())
     b_users, b_chats = await db.get_banned()

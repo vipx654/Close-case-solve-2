@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Local env / secrets
+.env
+*.env
+config.ini
+
+# Runtime / downloads / logs
+downloads/
+*.log
+TELEGRAM BOT.LOG
+Indexed channels.txt
+*.aria2
+.!ut

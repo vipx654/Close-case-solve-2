@@ -92,7 +92,8 @@ async def give_premium_cmd_handler(client, message):
         time = message.command[2]+" "+message.command[3]
         seconds = await get_seconds(time)
         if seconds > 0:
-            expiry_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
+            _ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+            expiry_time = datetime.datetime.now(_ist) + datetime.timedelta(seconds=seconds)
             user_data = {"id": user_id, "expiry_time": expiry_time}  # Using "id" instead of "user_id"  
             await db.update_user(user_data)  # Use the update_user method to update or insert user data
             data = await db.get_user(user_id)

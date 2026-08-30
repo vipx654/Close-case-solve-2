@@ -4,7 +4,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from info import ADMINS, LOG_CHANNEL, CHANNELS
+from info import ADMINS, LOG_CHANNEL, CHANNELS  # noqa: F401
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -13,6 +13,14 @@ logger.setLevel(logging.INFO)
 # Telegram does NOT allow magnet: scheme in inline URL buttons, so we cache
 # magnets here and deliver them via callback_data.
 _YTS_MAGNETS: dict[str, str] = {}
+
+# In-memory store for 1337x detail-page URLs. Telegram inline-button
+# callback_data is limited to 64 bytes; a 1337x URL far exceeds that and would
+# raise BUTTON_DATA_INVALID, so we cache the URL and pass only a short key.
+_L337X_URLS: dict[str, str] = {}
+
+# Cap the in-memory caches so they can't grow without bound.
+_MAX_CACHE = 2000
 
 YTS_API = "https://yts.mx/api/v2/list_movies.json"
 L337X_BASE = "https://www.1337x.to"
@@ -188,9 +196,17 @@ async def search_torrents(query: str):
 # ─── Format results as Telegram message ───────────────────────────────────────
 
 def _magnet_key(magnet: str) -> str:
-    """Return a short key for storing a magnet in _YTS_MAGNETS."""
+    """Return a short key for storing a value in the in-memory caches."""
     import hashlib
     return hashlib.md5(magnet.encode()).hexdigest()[:16]
+
+
+def _cache_put(store: dict, key: str, value: str) -> None:
+    """Store key->value, trimming the oldest entries if the cache is full."""
+    if len(store) >= _MAX_CACHE:
+        for old in list(store)[: _MAX_CACHE // 4]:
+            store.pop(old, None)
+    store[key] = value
 
 
 def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
@@ -228,7 +244,7 @@ def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
                 magnet = t.get("magnet", "")
                 if magnet:
                     key = _magnet_key(magnet)
-                    _YTS_MAGNETS[key] = magnet
+                    _cache_put(_YTS_MAGNETS, key, magnet)
                     row.append(
                         InlineKeyboardButton(label, callback_data=f"yts_magnet#{key}")
                     )
@@ -249,10 +265,15 @@ def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
                 f"\n{seed_icon} <b>{item['title'][:60]}</b>\n"
                 f"   Size: {size}  Seeds: {seeds}"
             )
+            # Cache the detail URL and put only a short key in callback_data
+            # (Telegram limits callback_data to 64 bytes).
+            url = item.get("detail_url", "")
+            key = _magnet_key(url)
+            _cache_put(_L337X_URLS, key, url)
             buttons.append([
                 InlineKeyboardButton(
                     f"🔗 Get link — {item['title'][:35]}",
-                    callback_data=f"torrent_magnet#{item['detail_url'][:200]}"
+                    callback_data=f"torrent_magnet#{key}"
                 )
             ])
 
@@ -283,7 +304,12 @@ async def post_to_channel(client, text: str, markup: InlineKeyboardMarkup):
 
 @Client.on_callback_query(filters.regex(r"^torrent_magnet#"))
 async def send_magnet_link(client, query):
-    detail_url = query.data.split("#", 1)[1]
+    key = query.data.split("#", 1)[1]
+    detail_url = _L337X_URLS.get(key)
+    if not detail_url:
+        return await query.answer(
+            "❌ Link expired. Search again to get a fresh one.", show_alert=True
+        )
     await query.answer("Fetching magnet link…", show_alert=False)
     magnet = await get_1337x_magnet(detail_url)
     if magnet:
@@ -317,7 +343,7 @@ async def close_torrent_results(client, query):
 
 # ─── Admin: /searchtorrent ─────────────────────────────────────────────────────
 
-@Client.on_message(filters.command(["searchtorrent", "torrent"]) & filters.incoming)
+@Client.on_message(filters.command(["searchtorrent", "torrent"]) & filters.private & filters.user(ADMINS) & filters.incoming)
 async def manual_torrent_search(client, message):
     if len(message.command) < 2:
         return await message.reply_text(

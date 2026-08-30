@@ -13,7 +13,9 @@ def is_enabled(value, default):
 
 # Bot information
 SESSION = environ.get('SESSION', 'Media_search')
-API_ID = int(environ.get('API_ID', ''))
+# int('') raises ValueError at import time; fall back to 0 so the bot can start and
+# pyrogram/telegram report a clear "api_id required" style error instead of a crash.
+API_ID = int(environ.get('API_ID', '0')) if environ.get('API_ID', '').strip() else 0
 API_HASH = environ.get('API_HASH', '')
 BOT_TOKEN = environ.get('BOT_TOKEN', "")
 
@@ -70,7 +72,7 @@ CHNL_LNK = environ.get('CHNL_LNK', 'https://t.me/')
 TUTORIAL = environ.get('TUTORIAL', 'https://t.me/') # Tutorial video link for opening shortlink website 
 IS_TUTORIAL = bool(environ.get('IS_TUTORIAL', True))
 MSG_ALRT = environ.get('MSG_ALRT', 'ᴍᴀɪɴᴛᴀɪɴᴇᴅ ʙʏ : ʜᴘ')
-LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '')) #Log channel id ( make sure bot is admin )
+LOG_CHANNEL = int(environ.get('LOG_CHANNEL', '0')) if environ.get('LOG_CHANNEL', '').lstrip('-').strip() else 0  # Log channel id ( make sure bot is admin )
 _dump_ch = environ.get('DUMP_CHANNEL', '')
 DUMP_CHANNEL = int(_dump_ch) if _dump_ch else None  # Dump channel to search when file not in DB
 SUPPORT_CHAT = environ.get('SUPPORT_CHAT', 'https://t.me/') #Support group link ( make sure bot is admin )
@@ -85,8 +87,8 @@ IMDB_TEMPLATE = environ.get("IMDB_TEMPLATE", f"{script.IMDB_TEMPLATE_TXT}")
 LONG_IMDB_DESCRIPTION = is_enabled(environ.get("LONG_IMDB_DESCRIPTION", "False"), False)
 SPELL_CHECK_REPLY = is_enabled(environ.get("SPELL_CHECK_REPLY", "True"), True)
 MAX_LIST_ELM = environ.get("MAX_LIST_ELM", None)
-INDEX_REQ_CHANNEL = int(environ.get('INDEX_REQ_CHANNEL', LOG_CHANNEL))
-FILE_STORE_CHANNEL = [int(ch) for ch in (environ.get('FILE_STORE_CHANNEL', '')).split()]
+INDEX_REQ_CHANNEL = int(environ.get('INDEX_REQ_CHANNEL', LOG_CHANNEL)) if str(environ.get('INDEX_REQ_CHANNEL', '')).lstrip('-').strip() else LOG_CHANNEL
+FILE_STORE_CHANNEL = [int(ch) for ch in (environ.get('FILE_STORE_CHANNEL', '')).split() if ch.lstrip('-').strip()]
 MELCOW_NEW_USERS = is_enabled((environ.get('MELCOW_NEW_USERS', "True")), True)
 PROTECT_CONTENT = is_enabled((environ.get('PROTECT_CONTENT', "True")), True)
 PUBLIC_FILE_STORE = is_enabled((environ.get('PUBLIC_FILE_STORE', "True")), True)
@@ -128,7 +130,25 @@ else:
     URL = "http://{}/".format(FQDN)
 
 # add premium logs channel id
-PREMIUM_LOGS = int(environ.get('PREMIUM_LOGS', ''))
+PREMIUM_LOGS = int(environ.get('PREMIUM_LOGS', '0')) if environ.get('PREMIUM_LOGS', '').lstrip('-').strip() else 0
+
+# --- Auto web-fetch agent (search -> download -> upload) ---------------------
+# When a file isn't in the DB the agent searches YTS/1337x, downloads the best
+# match with aria2, then uploads & indexes it. Requires `aria2c` on the host.
+AUTO_FETCH = is_enabled(environ.get('AUTO_FETCH', "False"), False)            # master switch
+FETCH_ON_REQUEST = is_enabled(environ.get('FETCH_ON_REQUEST', "True"), True)  # fetch from /request too
+MAX_FETCH_SIZE_MB = int(environ.get('MAX_FETCH_SIZE_MB', '2048'))            # skip files bigger than this
+MAX_CONCURRENT_FETCH = int(environ.get('MAX_CONCURRENT_FETCH', '1'))         # global parallel download cap
+FETCH_TIMEOUT = int(environ.get('FETCH_TIMEOUT', '1800'))                    # seconds per download
+DOWNLOAD_DIR = environ.get('DOWNLOAD_DIR', 'downloads')
+# Chat ids where auto-fetch is allowed; empty = allowed everywhere
+FETCH_ALLOWED_CHATS = [int(c) if id_pattern.search(c) else c for c in environ.get('FETCH_ALLOWED_CHATS', '').split()]
+
+# --- Video conversion (fast stream mode) ------------------------------------
+# Remux MKV/AVI -> MP4 (stream copy, no re-encode) + thumbnail so videos play
+# inline in Telegram. Requires ffmpeg/ffprobe.
+AUTO_CONVERT = is_enabled(environ.get('AUTO_CONVERT', "True"), True)
+CONVERT_TIMEOUT = int(environ.get('CONVERT_TIMEOUT', '1800'))
 
 LOG_STR = "Current Cusomized Configurations are:-\n"
 LOG_STR += ("IMDB Results are enabled, Bot will be showing imdb details for you queries.\n" if IMDB else "IMBD Results are disabled.\n")
