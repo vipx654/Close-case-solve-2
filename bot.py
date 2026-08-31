@@ -1,3 +1,13 @@
+# Load variables from a local .env file (KEY=VALUE) FIRST, before any module
+# reads os.environ. This lets Windows users configure the bot in a plain .env
+# with no batch-escaping of & / < / > characters. Safe if python-dotenv or the
+# file is missing.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
 import sys
 import glob
 import importlib
