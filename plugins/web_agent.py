@@ -90,7 +90,8 @@ def _pick_best(yts: list, l337x: list) -> dict | None:
         candidates.append({"title": t.get("title", "movie"), "magnet": mag,
                            "seeds": seeds, "mb": mb, "source": "YTS"})
     for t in l337x or []:
-        mb = _size_mb_from_text(t.get("title", ""))
+        # Prefer the parsed size column; fall back to anything in the title.
+        mb = _size_mb_from_text(t.get("size", "")) or _size_mb_from_text(t.get("title", ""))
         seeds = int(t.get("seeds", t.get("seeders", 0)) or 0)
         url = t.get("detail_url", "")
         if not url:

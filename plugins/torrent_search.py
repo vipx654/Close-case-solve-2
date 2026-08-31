@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import re
 import aiohttp
 from bs4 import BeautifulSoup
 from pyrogram import Client, filters
@@ -24,12 +25,25 @@ _MAX_CACHE = 2000
 
 YTS_API = "https://yts.mx/api/v2/list_movies.json"
 L337X_BASE = "https://www.1337x.to"
+# 1337x main domain is frequently Cloudflare-blocked / geo-blocked; try these
+# mirrors in order and use the first one that returns a 200 result page.
+L337X_MIRRORS = [
+    "https://www.1337x.to",
+    "https://1337x.to",
+    "https://1337x.st",
+    "https://x1337x.ws",
+    "https://x1337x.eu",
+    "https://1337x.tw",
+    "https://1337x.tc",
+]
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 QUALITY_EMOJI = {"720p": "🎬", "1080p": "🔥", "2160p": "⚡", "3D": "🥽"}
 
@@ -112,72 +126,94 @@ def _build_magnet(hash_: str, title: str) -> str:
 
 async def search_1337x(query: str, limit: int = 8):
     """
-    Scrape 1337x for movies/series results.
-    Returns list of dicts with title, size, seeds, detail_url.
+    Scrape 1337x (trying several mirrors) for movies/series results.
+    Returns list of dicts with title, size, seeds, detail_url, detail_path.
     """
-    try:
-        search_url = f"{L337X_BASE}/search/{query.replace(' ', '+')}/1/"
-        async with aiohttp.ClientSession(headers=HEADERS) as session:
-            async with session.get(search_url, timeout=aiohttp.ClientTimeout(total=12)) as resp:
-                if resp.status != 200:
+    q = query.replace(' ', '+')
+    last_err = None
+    for base in L337X_MIRRORS:
+        try:
+            search_url = f"{base}/search/{q}/1/"
+            async with aiohttp.ClientSession(headers=HEADERS) as session:
+                async with session.get(search_url, timeout=aiohttp.ClientTimeout(total=12),
+                                       allow_redirects=True) as resp:
+                    if resp.status != 200:
+                        last_err = f"HTTP {resp.status} from {base}"
+                        continue
+                    html = await resp.text()
+
+            soup = BeautifulSoup(html, "html.parser")
+            rows = soup.select("table.table-list tbody tr")
+            if not rows:
+                # Page loaded but has no results -> empty query result, stop.
+                if "table-list" in html:
                     return []
-                html = await resp.text()
+                last_err = f"no table on {base}"
+                continue  # likely a Cloudflare challenge page -> try next mirror
 
-        soup = BeautifulSoup(html, "html.parser")
-        rows = soup.select("table.table-list tbody tr")
-
-        results = []
-        for row in rows[:limit]:
-            try:
-                name_tag = row.select_one("td.name a:nth-of-type(2)")
-                seed_tag = row.select_one("td.seeds")
-                size_tag = row.select_one("td.size")
-                if not name_tag:
+            results = []
+            for row in rows[:limit]:
+                try:
+                    name_tag = row.select_one("td.name a:nth-of-type(2)")
+                    seed_tag = row.select_one("td.seeds")
+                    size_tag = row.select_one("td.size")
+                    if not name_tag:
+                        continue
+                    title = name_tag.get_text(strip=True)
+                    detail_path = name_tag.get("href", "")
+                    seeds = seed_tag.get_text(strip=True) if seed_tag else "0"
+                    size_text = size_tag.get_text(strip=True) if size_tag else "?"
+                    size_clean = "".join(c for c in size_text if c in "0123456789.GMKBgmkb ").strip()
+                    results.append({
+                        "title": title,
+                        "seeds": int(seeds) if seeds.isdigit() else 0,
+                        "size": size_clean,
+                        "detail_path": detail_path if detail_path.startswith("/") else "/" + detail_path,
+                        "detail_url": base + (detail_path if detail_path.startswith("/") else "/" + detail_path),
+                        "source": "1337x",
+                    })
+                except Exception:
                     continue
+            return results
+        except asyncio.TimeoutError:
+            last_err = f"timeout {base}"
+            continue
+        except Exception as e:
+            last_err = f"{base}: {e}"
+            continue
+    logger.warning(f"1337x all mirrors failed: {last_err}")
+    return []
 
-                title = name_tag.get_text(strip=True)
-                detail_path = name_tag.get("href", "")
-                seeds = seed_tag.get_text(strip=True) if seed_tag else "0"
-                size_text = size_tag.get_text(strip=True) if size_tag else "?"
 
-                # Clean size (remove trailing junk chars)
-                size_clean = "".join(
-                    c for c in size_text if c in "0123456789. GMKBgmkb"
-                ).strip()
-
-                results.append({
-                    "title": title,
-                    "seeds": int(seeds) if seeds.isdigit() else 0,
-                    "size": size_clean,
-                    "detail_url": L337X_BASE + detail_path if detail_path.startswith("/") else detail_path,
-                    "source": "1337x",
-                })
-            except Exception:
-                continue
-
-        return results
-
-    except asyncio.TimeoutError:
-        logger.warning("1337x timeout")
-        return []
-    except Exception as e:
-        logger.exception(f"1337x search error: {e}")
-        return []
+def _detail_path_from_url(detail_url: str) -> str:
+    """Extract the /torrent/.../ path from a (possibly mirror-based) detail url."""
+    m = re.search(r"(/torrent/.*)", detail_url)
+    return m.group(1) if m else ""
 
 
 async def get_1337x_magnet(detail_url: str) -> str:
-    """Fetch magnet link from a 1337x detail page."""
-    try:
-        async with aiohttp.ClientSession(headers=HEADERS) as session:
-            async with session.get(detail_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    return ""
-                html = await resp.text()
-        soup = BeautifulSoup(html, "html.parser")
-        magnet_tag = soup.select_one('a[href^="magnet:"]')
-        return magnet_tag["href"] if magnet_tag else ""
-    except Exception:
-        return ""
+    """Fetch a magnet link from a 1337x detail page, trying mirrors if needed."""
+    path = _detail_path_from_url(detail_url)
+    candidates = [detail_url] + [b.rstrip("/") + path for b in L337X_MIRRORS if path]
+    seen = set()
+    for url in candidates:
+        if url in seen or not url:
+            continue
+        seen.add(url)
+        try:
+            async with aiohttp.ClientSession(headers=HEADERS) as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10),
+                                       allow_redirects=True) as resp:
+                    if resp.status != 200:
+                        continue
+                    html = await resp.text()
+            soup = BeautifulSoup(html, "html.parser")
+            magnet_tag = soup.select_one('a[href^="magnet:"]')
+            if magnet_tag and magnet_tag.get("href"):
+                return magnet_tag["href"]
+        except Exception:
+            continue
+    return ""
 
 
 # ─── Combined search ──────────────────────────────────────────────────────────
