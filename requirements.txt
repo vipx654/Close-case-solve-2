@@ -2,10 +2,10 @@ pyrogram>=2.0.30
 # tgcrypto is optional (C crypto speedup). It has no prebuilt wheel for
 # Python 3.12+, so it's left out — Pyrogram automatically uses its pure-Python
 # fallback. To enable it on Python <=3.11: pip install tgcrypto
- pymongo[srv]==3.12.3 
- motor==2.5.1 
- marshmallow==3.14.1 
- umongo==3.0.1 
+ pymongo[srv]>=4.7,<5      # motor 3.x needs pymongo 4; Python 3.12 safe 
+ motor>=3.5,<4               # 3.5+ supports Python 3.12 (2.x imported removed asyncio.coroutine) 
+ marshmallow>=3.20,<4        # 3.20+ no longer imports removed distutils 
+ umongo>=3.1,<4             # compatible with motor 3 / pymongo 4 
  requests 
  bs4 
  git+https://github.com/Joelkb/cinemagoer 
@@ -31,7 +31,7 @@ pyrogram>=2.0.30
  wget 
  pytz
  aiofiles
- dnspython==2.3.0
+ dnspython>=2.4
  ### googletrans==4.0.0-rc1 ###
 python-decouple
 ffmpeg-python>=0.2.0
