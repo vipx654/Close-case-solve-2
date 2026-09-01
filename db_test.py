@@ -14,9 +14,13 @@ except Exception:
     pass
 
 # Same normalisation as bot.py (strip quotes / batch ^& escaping)
+import re
 uri = os.environ.get("DATABASE_URI", "")
 if uri:
     uri = uri.strip().strip('"').strip("'").replace("^&", "&")
+    m = re.search(r"mongodb(?:\+srv)?://[^\s]+", uri)
+    if m:
+        uri = m.group(0)
     os.environ["DATABASE_URI"] = uri
 
 

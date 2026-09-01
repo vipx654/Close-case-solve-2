@@ -13,10 +13,15 @@ except Exception:
 # Normalise a few values that may have been pasted with Windows-batch
 # escaping (^&) or accidental quotes; pymongo needs the raw URI.
 import os as _os
+import re as _re
 for _k in ("DATABASE_URI",):
     _v = _os.environ.get(_k)
     if _v:
         _v = _v.strip().strip('"').strip("'").replace("^&", "&")
+        # Tolerate a doubled prefix / leading junk: keep from mongodb:// on.
+        _m = _re.search(r"mongodb(?:\+srv)?://[^\s]+", _v)
+        if _m:
+            _v = _m.group(0)
         _os.environ[_k] = _v
 
 import sys
