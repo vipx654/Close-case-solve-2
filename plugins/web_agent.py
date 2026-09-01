@@ -47,6 +47,10 @@ ARIA2C = shutil.which("aria2c")
 _INFLIGHT: set = set()
 _SEM = asyncio.Semaphore(max(1, MAX_CONCURRENT_FETCH))
 
+# Format-picker state: key -> {"query":..., "cands":[...]} for the choice buttons.
+_FETCH_CHOICES: dict = {}
+_CHOICE_MAX = 2000
+
 _VIDEO_AUDIO_EXT = (
     ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv",
     ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wav",
@@ -76,16 +80,25 @@ def _size_mb_from_text(text: str) -> float:
     return val * 1024 if m.group(2).upper() == "GB" else val
 
 
-def _pick_best(yts: list, extras: list) -> dict | None:
-    """Choose the highest-seeded, size-capped candidate from all sources.
+def _quality_of(text: str) -> str:
+    """Best-effort quality/format label from a release title."""
+    t = (text or "").lower()
+    for tag in ["2160p", "4k", "uhd", "1080p", "720p", "480p", "360p", "web-dl", "webrip", "bluray", "bdrip", "brrip", "hdrip", "hevc", "x265", "x264"]:
+        if tag in t:
+            if tag == "4k":
+                return "2160p"
+            return tag.upper() if tag.endswith("p") else tag.upper()
+    return "FILE"
 
-    Handles both shapes returned by search_torrents():
-      - YTS movies (magnets nested under 'torrents'),
-      - flat extras (TPB has top-level 'magnet'/'size_mb'; 1337x has
-        'detail_url' needing a follow-up scrape).
+
+def collect_candidates(yts: list, extras: list, limit: int = 6) -> list:
+    """Return all downloadable, size-capped candidates across sources.
+
+    Handles YTS movies (magnets nested under 'torrents') and flat extras
+    (TPB with top-level 'magnet'/'size_mb'; 1337x with 'detail_url').
+    Sorted best-first: direct magnets with the most seeders, capped to MAX.
     """
     candidates = []
-
     for movie in yts or []:
         for t in (movie.get("torrents") or []):
             mag = t.get("magnet", "")
@@ -95,12 +108,12 @@ def _pick_best(yts: list, extras: list) -> dict | None:
             seeds = int(t.get("seeds", 0) or 0)
             if mb and mb > MAX_FETCH_SIZE_MB:
                 continue
+            q = (t.get("quality", "") or "").upper() or "FILE"
+            title = f"{movie.get('title', 'movie')} {movie.get('year', '')} {t.get('quality','')} {t.get('type','')}".strip()
             candidates.append({
-                "title": f"{movie.get('title', 'movie')} {movie.get('year', '')} {t.get('quality', '')}".strip(),
-                "magnet": mag, "detail_url": "",
-                "seeds": seeds, "mb": mb, "source": "YTS",
+                "title": title, "magnet": mag, "detail_url": "",
+                "seeds": seeds, "mb": mb, "source": "YTS", "quality": q,
             })
-
     for it in extras or []:
         mag = it.get("magnet", "")
         url = it.get("detail_url", "")
@@ -115,13 +128,26 @@ def _pick_best(yts: list, extras: list) -> dict | None:
             "title": it.get("title", "movie"),
             "magnet": mag, "detail_url": url,
             "seeds": seeds, "mb": mb, "source": it.get("source", "?"),
+            "quality": _quality_of(it.get("title", "")),
         })
 
-    if not candidates:
-        return None
-    # Highest seeders first (a direct magnet beats a 1337x page scrape on ties).
-    candidates.sort(key=lambda c: (c["seeds"], 1 if c.get("magnet") else 0), reverse=True)
-    return candidates[0]
+    # de-dupe by magnet (or title), prefer direct magnets, sort by seeds
+    seen = set()
+    uniq = []
+    for c in candidates:
+        key = c.get("magnet") or c["title"].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(c)
+    uniq.sort(key=lambda c: (1 if c.get("magnet") else 0, c["seeds"]), reverse=True)
+    return uniq[:limit]
+
+
+def _pick_best(yts: list, extras: list) -> dict | None:
+    """Highest-seeded candidate (kept for the manual /fetch command)."""
+    cands = collect_candidates(yts, extras, limit=1)
+    return cands[0] if cands else None
 
 
 async def _resolve_magnet(pick: dict) -> str:
@@ -355,13 +381,23 @@ async def manual_fetch(client, message):
                                   query, mention))
 
 
+def _fmt_size(mb: float) -> str:
+    mb = float(mb or 0)
+    return f"{mb/1024:.2f} GB" if mb >= 1024 else f"{mb:.0f} MB"
+
+
+def _choice_key(chat_id: int, query: str) -> str:
+    import hashlib
+    return hashlib.md5(f"{chat_id}:{query.lower().strip()}".encode()).hexdigest()[:12]
+
+
 async def maybe_auto_fetch(client, message, query: str) -> bool:
     """Called from the search not-found path.
 
-    Quickly searches the sources ONCE; if there's a downloadable match it
-    starts a background download+upload task and returns True (so the caller
-    skips the fallback "link/not found" messages). Returns False when the
-    agent is off, aria2 is missing, or nothing downloadable exists.
+    Searches the sources ONCE and, if downloadable matches exist, posts a
+    format/quality picker (multiple buttons). The chosen format is fetched
+    by the fetchpick# callback handler. Returns True if a picker was shown
+    (so the caller skips the link/not-found fallbacks).
     """
     if not fetch_allowed(message.chat.id):
         return False
@@ -370,28 +406,70 @@ async def maybe_auto_fetch(client, message, query: str) -> bool:
     if not query or len(query) < 3:
         return False
 
-    # Fast candidate search (The Pirate Bay JSON + YTS).
     try:
         from plugins.torrent_search import search_torrents
         yts, extras = await search_torrents(query)
-        pick = _pick_best(yts, extras)
+        cands = collect_candidates(yts, extras, limit=6)
     except Exception as e:
         logger.warning(f"web-agent search failed: {e}")
         return False
-    if not pick:
+    if not cands:
         return False
 
-    size_txt = f"{pick.get('mb', 0):.0f} MB" if pick.get("mb") else "unknown size"
-    status = await message.reply_text(
-        f"🤖 <b>Web agent found it!</b>\n"
-        f"🎯 <b>{pick['title'][:80]}</b>\n"
-        f"📦 {size_txt} · 🟢 {pick.get('seeds', 0)} seeds ({pick.get('source')})\n\n"
-        f"⬇️ Downloading & uploading now… this can take a few minutes depending on size/speed."
+    key = _choice_key(message.chat.id, query)
+    if len(_FETCH_CHOICES) >= _CHOICE_MAX:
+        _FETCH_CHOICES.pop(next(iter(_FETCH_CHOICES)))
+    _FETCH_CHOICES[key] = {"query": query, "cands": cands}
+
+    buttons = []
+    for i, c in enumerate(cands):
+        label = f"{c['quality']} · {_fmt_size(c['mb'])} · 🌱{c['seeds']}"
+        buttons.append([InlineKeyboardButton(f"⬇️ {label}", callback_data=f"fetchpick#{key}#{i}")])
+    buttons.append([InlineKeyboardButton("❌ Close", callback_data="fetchpick#close")])
+
+    await message.reply_text(
+        f"🤖 <b>Web agent found formats for:</b> <code>{query}</code>\n"
+        f"Choose a quality to download & upload ({MAX_FETCH_SIZE_MB//1024} GB max):",
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
-    mention = message.from_user.mention if message.from_user else "user"
-    asyncio.create_task(run_fetch(
-        client, status, message.chat.id,
-        message.from_user.id if message.from_user else 0,
-        query, mention, pick=pick,
-    ))
     return True
+
+
+@Client.on_callback_query(filters.regex(r"^fetchpick#"))
+async def fetch_pick_handler(client, query):
+    data = query.data.split("#")
+    if len(data) >= 2 and data[1] == "close":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        return await query.answer()
+
+    if len(data) < 3:
+        return await query.answer("Invalid choice, search again.", show_alert=True)
+    _, key, idx = data
+    entry = _FETCH_CHOICES.get(key)
+    if not entry:
+        return await query.answer("Choices expired. Please search again.", show_alert=True)
+    try:
+        cand = entry["cands"][int(idx)]
+    except (IndexError, ValueError):
+        return await query.answer("That format is no longer available.", show_alert=True)
+
+    await query.answer("Starting download…")
+    status = await query.message.reply_text(
+        f"⬇️ <b>Downloading:</b> {cand['title'][:80]}\n"
+        f"📦 {_fmt_size(cand['mb'])} · 🟢 {cand['seeds']} seeds ({cand['source']})\n"
+        f"Please wait — this can take a few minutes."
+    )
+    try:
+        await query.message.edit_reply_markup(None)
+    except Exception:
+        pass
+
+    mention = query.from_user.mention if query.from_user else "user"
+    asyncio.create_task(run_fetch(
+        client, status, query.message.chat.id,
+        query.from_user.id if query.from_user else 0,
+        entry["query"], mention, pick=cand,
+    ))

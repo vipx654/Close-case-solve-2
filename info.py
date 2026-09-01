@@ -137,7 +137,7 @@ PREMIUM_LOGS = int(environ.get('PREMIUM_LOGS', '0')) if environ.get('PREMIUM_LOG
 # match with aria2, then uploads & indexes it. Requires `aria2c` on the host.
 AUTO_FETCH = is_enabled(environ.get('AUTO_FETCH', "False"), False)            # master switch
 FETCH_ON_REQUEST = is_enabled(environ.get('FETCH_ON_REQUEST', "True"), True)  # fetch from /request too
-MAX_FETCH_SIZE_MB = int(environ.get('MAX_FETCH_SIZE_MB', '2048'))            # skip files bigger than this
+MAX_FETCH_SIZE_MB = int(environ.get("MAX_FETCH_SIZE_MB", "5120"))            # skip files bigger than this
 MAX_CONCURRENT_FETCH = int(environ.get('MAX_CONCURRENT_FETCH', '1'))         # global parallel download cap
 FETCH_TIMEOUT = int(environ.get('FETCH_TIMEOUT', '1800'))                    # seconds per download
 DOWNLOAD_DIR = environ.get('DOWNLOAD_DIR', 'downloads')
