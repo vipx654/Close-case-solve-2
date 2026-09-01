@@ -4,9 +4,20 @@
 # file is missing.
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # override=True so the .env file always wins over stale 'set' variables
+    # left in the Command Prompt session from an earlier run.
+    load_dotenv(override=True)
 except Exception:
     pass
+
+# Normalise a few values that may have been pasted with Windows-batch
+# escaping (^&) or accidental quotes; pymongo needs the raw URI.
+import os as _os
+for _k in ("DATABASE_URI",):
+    _v = _os.environ.get(_k)
+    if _v:
+        _v = _v.strip().strip('"').strip("'").replace("^&", "&")
+        _os.environ[_k] = _v
 
 import sys
 import glob
