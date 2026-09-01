@@ -2169,7 +2169,16 @@ async def auto_filter(client, msg, spoll=False):
                     logger.exception(f"Dump channel search failed: {_de}")
             if not files:
                 await m.delete()
-                # Fallback 2: search torrents directly
+                # Fallback 2a: auto web-fetch agent — actually downloads & uploads.
+                # Runs BEFORE the torrent-link fallback so the user gets the file
+                # rather than just magnet links. Returns True if a fetch started.
+                try:
+                    from plugins.web_agent import maybe_auto_fetch
+                    if await maybe_auto_fetch(client, message, search):
+                        return
+                except Exception as fe:
+                    logger.exception(f"Auto-fetch dispatch failed: {fe}")
+                # Fallback 2b: search torrents and send magnet/direct links
                 from plugins.torrent_search import search_torrents, format_torrent_results
                 _tor_status = await message.reply_text(
                     f"🌐 <b>Not in database. Searching torrents for:</b> <code>{search}</code>"
@@ -2244,13 +2253,6 @@ async def auto_filter(client, msg, spoll=False):
                             return
                 except Exception as sp_err:
                     logger.exception(f"Spell check failed: {sp_err}")
-                # Fallback 4: auto web-fetch agent (search -> aria2 download -> upload).
-                # Background task; gated on AUTO_FETCH config; degrades silently.
-                try:
-                    from plugins.web_agent import maybe_auto_fetch
-                    await maybe_auto_fetch(client, message, search)
-                except Exception as fe:
-                    logger.exception(f"Auto-fetch dispatch failed: {fe}")
                 # Nothing found anywhere — show not-found message
                 button = [[InlineKeyboardButton("📝 ʀᴇǫᴜᴇꜱᴛ ʜᴇʀᴇ", url=f"https://t.me/from_Admins_desk")]]
                 k = await message.reply_text(

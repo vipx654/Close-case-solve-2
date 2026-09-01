@@ -76,34 +76,51 @@ def _size_mb_from_text(text: str) -> float:
     return val * 1024 if m.group(2).upper() == "GB" else val
 
 
-def _pick_best(yts: list, l337x: list) -> dict | None:
-    """Choose the highest-seeded candidate within the size cap. Returns dict."""
+def _pick_best(yts: list, extras: list) -> dict | None:
+    """Choose the highest-seeded, size-capped candidate from all sources.
+
+    Handles both shapes returned by search_torrents():
+      - YTS movies (magnets nested under 'torrents'),
+      - flat extras (TPB has top-level 'magnet'/'size_mb'; 1337x has
+        'detail_url' needing a follow-up scrape).
+    """
     candidates = []
-    for t in yts or []:
-        mb = _size_mb_from_yts(t)
-        seeds = int(t.get("seeds", t.get("seeders", 0)) or 0)
-        mag = t.get("magnet", "")
-        if not mag:
+
+    for movie in yts or []:
+        for t in (movie.get("torrents") or []):
+            mag = t.get("magnet", "")
+            if not mag:
+                continue
+            mb = _size_mb_from_yts(t)
+            seeds = int(t.get("seeds", 0) or 0)
+            if mb and mb > MAX_FETCH_SIZE_MB:
+                continue
+            candidates.append({
+                "title": f"{movie.get('title', 'movie')} {movie.get('year', '')} {t.get('quality', '')}".strip(),
+                "magnet": mag, "detail_url": "",
+                "seeds": seeds, "mb": mb, "source": "YTS",
+            })
+
+    for it in extras or []:
+        mag = it.get("magnet", "")
+        url = it.get("detail_url", "")
+        if not mag and not url:
             continue
+        mb = it.get("size_mb") or _size_mb_from_text(it.get("size", "")) or _size_mb_from_text(it.get("title", ""))
+        mb = float(mb or 0)
         if mb and mb > MAX_FETCH_SIZE_MB:
             continue
-        candidates.append({"title": t.get("title", "movie"), "magnet": mag,
-                           "seeds": seeds, "mb": mb, "source": "YTS"})
-    for t in l337x or []:
-        # Prefer the parsed size column; fall back to anything in the title.
-        mb = _size_mb_from_text(t.get("size", "")) or _size_mb_from_text(t.get("title", ""))
-        seeds = int(t.get("seeds", t.get("seeders", 0)) or 0)
-        url = t.get("detail_url", "")
-        if not url:
-            continue
-        if mb and mb > MAX_FETCH_SIZE_MB:
-            continue
-        candidates.append({"title": t.get("title", "movie"), "detail_url": url,
-                           "seeds": seeds, "mb": mb, "source": "1337x"})
+        seeds = int(it.get("seeds", it.get("seeders", 0)) or 0)
+        candidates.append({
+            "title": it.get("title", "movie"),
+            "magnet": mag, "detail_url": url,
+            "seeds": seeds, "mb": mb, "source": it.get("source", "?"),
+        })
+
     if not candidates:
         return None
-    # Most seeders; unknown size (mb==0) sorts after sized ones only if capped.
-    candidates.sort(key=lambda c: (c["seeds"], 1 if c["mb"] else 0), reverse=True)
+    # Highest seeders first (a direct magnet beats a 1337x page scrape on ties).
+    candidates.sort(key=lambda c: (c["seeds"], 1 if c.get("magnet") else 0), reverse=True)
     return candidates[0]
 
 
@@ -201,8 +218,13 @@ async def _upload_and_index(client, file_path: str, chat_id: int):
     return sent, up_path
 
 
-async def run_fetch(client, status_msg, chat_id: int, user_id: int, query: str, mention: str = ""):
-    """Full pipeline. Sends its own progress messages. Never raises."""
+async def run_fetch(client, status_msg, chat_id: int, user_id: int, query: str,
+                    mention: str = "", pick: dict | None = None):
+    """Full pipeline. Sends its own progress messages. Never raises.
+
+    `pick` may be a pre-selected candidate (from maybe_auto_fetch); if None
+    the sources are searched here (used by the manual /fetch command).
+    """
     dedupe = f"{chat_id}:{query.lower().strip()}"
     if dedupe in _INFLIGHT:
         return
@@ -217,10 +239,11 @@ async def run_fetch(client, status_msg, chat_id: int, user_id: int, query: str, 
             return
 
         async with _SEM:
-            # 1) search
-            from plugins.torrent_search import search_torrents
-            yts, l337x = await search_torrents(query)
-            pick = _pick_best(yts, l337x)
+            # 1) search (unless a candidate was already chosen)
+            if pick is None:
+                from plugins.torrent_search import search_torrents
+                yts, extras = await search_torrents(query)
+                pick = _pick_best(yts, extras)
             if not pick:
                 await status_msg.edit_text(
                     f"🤖 Agent searched the web but found no downloadable result under "
@@ -332,17 +355,43 @@ async def manual_fetch(client, message):
                                   query, mention))
 
 
-async def maybe_auto_fetch(client, message, query: str):
-    """Called from the search not-found path. Fires a background fetch."""
+async def maybe_auto_fetch(client, message, query: str) -> bool:
+    """Called from the search not-found path.
+
+    Quickly searches the sources ONCE; if there's a downloadable match it
+    starts a background download+upload task and returns True (so the caller
+    skips the fallback "link/not found" messages). Returns False when the
+    agent is off, aria2 is missing, or nothing downloadable exists.
+    """
     if not fetch_allowed(message.chat.id):
-        return
+        return False
+    if not ARIA2C:
+        return False
     if not query or len(query) < 3:
-        return
+        return False
+
+    # Fast candidate search (The Pirate Bay JSON + YTS).
+    try:
+        from plugins.torrent_search import search_torrents
+        yts, extras = await search_torrents(query)
+        pick = _pick_best(yts, extras)
+    except Exception as e:
+        logger.warning(f"web-agent search failed: {e}")
+        return False
+    if not pick:
+        return False
+
+    size_txt = f"{pick.get('mb', 0):.0f} MB" if pick.get("mb") else "unknown size"
     status = await message.reply_text(
-        f"🤖 <b>Not in my database.</b> My web agent is searching &amp; trying to fetch "
-        f"<code>{query}</code>… you'll be notified if it succeeds."
+        f"🤖 <b>Web agent found it!</b>\n"
+        f"🎯 <b>{pick['title'][:80]}</b>\n"
+        f"📦 {size_txt} · 🟢 {pick.get('seeds', 0)} seeds ({pick.get('source')})\n\n"
+        f"⬇️ Downloading & uploading now… this can take a few minutes depending on size/speed."
     )
     mention = message.from_user.mention if message.from_user else "user"
-    asyncio.create_task(run_fetch(client, status, message.chat.id,
-                                  message.from_user.id if message.from_user else 0,
-                                  query, mention))
+    asyncio.create_task(run_fetch(
+        client, status, message.chat.id,
+        message.from_user.id if message.from_user else 0,
+        query, mention, pick=pick,
+    ))
+    return True

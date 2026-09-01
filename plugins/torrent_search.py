@@ -2,6 +2,7 @@ import logging
 import asyncio
 import re
 import aiohttp
+from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -24,6 +25,12 @@ _L337X_URLS: dict[str, str] = {}
 _MAX_CACHE = 2000
 
 YTS_API = "https://yts.mx/api/v2/list_movies.json"
+# YTS main domain is sometimes blocked; try these hosts in order.
+YTS_DOMAINS = ["yts.mx", "yts.am", "yts.lt", "yts.rs", "yts.do"]
+# The Pirate Bay JSON API (clean JSON, not Cloudflare-walled; has Bollywood +
+# Hollywood with direct info_hash). Main host may be blocked in some regions,
+# so keep mirrors.
+TPB_API_HOSTS = ["apibay.org", "tpb.party", "apibay.xyz"]
 L337X_BASE = "https://www.1337x.to"
 # 1337x main domain is frequently Cloudflare-blocked / geo-blocked; try these
 # mirrors in order and use the first one that returns a 200 result page.
@@ -55,55 +62,60 @@ async def search_yts(query: str, limit: int = 5):
     Search YTS API for movies.
     Returns list of dicts with title, year, rating, torrents.
     """
-    try:
-        async with aiohttp.ClientSession(headers=HEADERS) as session:
-            params = {
-                "query_term": query,
-                "limit": limit,
-                "sort_by": "seeds",
-                "order_by": "desc",
-            }
-            async with session.get(YTS_API, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
+    for dom in YTS_DOMAINS:
+        try:
+            api = f"https://{dom}/api/v2/list_movies.json"
+            async with aiohttp.ClientSession(headers=HEADERS) as session:
+                params = {
+                    "query_term": query,
+                    "limit": limit,
+                    "sort_by": "seeds",
+                    "order_by": "desc",
+                }
+                async with session.get(api, params=params, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        continue
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        continue
 
-        if data.get("status") != "ok":
-            return []
+            if data.get("status") != "ok":
+                continue
 
-        movies = data.get("data", {}).get("movies") or []
-        results = []
-        for movie in movies:
-            torrents = movie.get("torrents") or []
-            results.append({
-                "title": movie.get("title", "Unknown"),
-                "year": movie.get("year", ""),
-                "rating": movie.get("rating", "N/A"),
-                "genres": ", ".join(movie.get("genres") or []),
-                "summary": (movie.get("summary") or "")[:300],
-                "cover": movie.get("medium_cover_image", ""),
-                "url": movie.get("url", ""),
-                "torrents": [
-                    {
-                        "quality": t.get("quality", ""),
-                        "type": t.get("type", ""),
-                        "size": t.get("size", ""),
-                        "seeds": t.get("seeds", 0),
-                        "magnet": _build_magnet(t.get("hash", ""), movie.get("title", "")),
-                        "url": t.get("url", ""),
-                    }
-                    for t in torrents
-                ],
-                "source": "YTS",
-            })
-        return results
-
-    except asyncio.TimeoutError:
-        logger.warning("YTS API timeout")
-        return []
-    except Exception as e:
-        logger.exception(f"YTS search error: {e}")
-        return []
+            movies = data.get("data", {}).get("movies") or []
+            results = []
+            for movie in movies:
+                torrents = movie.get("torrents") or []
+                results.append({
+                    "title": movie.get("title", "Unknown"),
+                    "year": movie.get("year", ""),
+                    "rating": movie.get("rating", "N/A"),
+                    "genres": ", ".join(movie.get("genres") or []),
+                    "summary": (movie.get("summary") or "")[:300],
+                    "cover": movie.get("medium_cover_image", ""),
+                    "url": movie.get("url", ""),
+                    "torrents": [
+                        {
+                            "quality": t.get("quality", ""),
+                            "type": t.get("type", ""),
+                            "size": t.get("size", ""),
+                            "seeds": t.get("seeds", 0),
+                            "magnet": _build_magnet(t.get("hash", ""), movie.get("title", "")),
+                            "url": t.get("url", ""),
+                        }
+                        for t in torrents
+                    ],
+                    "source": "YTS",
+                })
+            if results:
+                return results
+        except asyncio.TimeoutError:
+            continue
+        except Exception:
+            continue
+    logger.warning(f"All YTS domains failed for '{query}'")
+    return []
 
 
 def _build_magnet(hash_: str, title: str) -> str:
@@ -120,6 +132,92 @@ def _build_magnet(hash_: str, title: str) -> str:
         "udp://tracker.leechers-paradise.org:6969"
     )
     return f"magnet:?xt=urn:btih:{hash_}&dn={title}&tr={trackers}"
+
+
+# ─── The Pirate Bay (apibay JSON API; Hollywood + Bollywood) ─────────────────
+
+def _tpb_magnet(info_hash: str, name: str) -> str:
+    trackers = (
+        "udp://tracker.opentrackr.org:1337/announce&"
+        "udp://open.demonii.com:1337/announce&"
+        "udp://tracker.openbittorrent.com:80&"
+        "udp://exodus.desync.com:6969/announce&"
+        "udp://tracker.torrent.eu.org:451/announce"
+    )
+    return f"magnet:?xt=urn:btih:{info_hash}&dn={quote_plus(name)}&tr={trackers}"
+
+
+def _tpb_size_mb(size_bytes) -> float:
+    try:
+        return int(size_bytes) / (1024 * 1024)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def search_tpb(query: str, limit: int = 8):
+    """Search The Pirate Bay JSON API. Returns flat dicts w/ title/seeds/size/magnet."""
+    q = query.strip()
+    if not q:
+        return []
+    for host in TPB_API_HOSTS:
+        try:
+            async with aiohttp.ClientSession(headers=HEADERS) as session:
+                async with session.get(
+                    f"https://{host}/q.php",
+                    params={"q": q},
+                    timeout=aiohttp.ClientTimeout(total=12),
+                ) as resp:
+                    if resp.status != 200:
+                        continue
+                    try:
+                        data = await resp.json()
+                    except Exception:
+                        continue
+
+            if not data or not isinstance(data, list):
+                continue
+            # TPB returns [{id:'0', name:'No results returned'}] when empty
+            first = data[0] if data else {}
+            if first.get("name") == "No results returned":
+                return []
+
+            junk = re.compile(r"\b(sample|mp3|\.mp3|soundtrack|ost\b|ebook|wwe|xxx|porn)\b", re.I)
+            video_ext = re.compile(r"\.(mkv|mp4|avi|webm|mov|ts|m4v)\b", re.I)
+            results = []
+            for it in data:
+                try:
+                    name = (it.get("name") or "").strip()
+                    info_hash = (it.get("info_hash") or "").strip().lower()
+                    seeds = int(it.get("seeders", 0) or 0)
+                    size_mb = _tpb_size_mb(it.get("size"))
+                    if not name or not info_hash:
+                        continue
+                    if seeds <= 0 or junk.search(name):
+                        continue
+                    # Keep video-like entries, or large files likely to be movies
+                    if not (video_ext.search(name) or size_mb > 250):
+                        continue
+                    results.append({
+                        "title": name,
+                        "seeds": seeds,
+                        "size_mb": size_mb,
+                        "size": f"{size_mb/1024:.2f} GB" if size_mb >= 1024 else f"{size_mb:.0f} MB",
+                        "magnet": _tpb_magnet(info_hash, name),
+                        "source": "TPB",
+                    })
+                except Exception:
+                    continue
+            results.sort(key=lambda x: x["seeds"], reverse=True)
+            if results:
+                return results[:limit]
+            return []  # reached a working API but nothing usable
+        except asyncio.TimeoutError:
+            continue
+        except Exception as e:
+            logger.warning(f"TPB {host} failed: {str(e)[:80]}")
+            continue
+    logger.warning(f"All TPB mirrors failed for '{query}'")
+    return []
 
 
 # ─── 1337x (movies + series) ──────────────────────────────────────────────────
@@ -220,13 +318,23 @@ async def get_1337x_magnet(detail_url: str) -> str:
 
 async def search_torrents(query: str):
     """
-    Search both YTS and 1337x concurrently.
-    Returns (yts_results, l337x_results).
+    Search The Pirate Bay (apibay JSON), YTS, and 1337x concurrently.
+    Returns (yts_results, extra_results):
+      - yts_results: YTS movies (nested torrents) used for the YTS UI section;
+      - extra_results: TPB entries (flat, with 'magnet') + 1337x entries
+        (with 'detail_url'), the reliable workhorse for auto-download and for
+        Bollywood/non-YTS titles. TPB first since it has direct magnets.
     """
+    tpb_task = asyncio.create_task(search_tpb(query))
     yts_task = asyncio.create_task(search_yts(query))
     l337x_task = asyncio.create_task(search_1337x(query))
-    yts_results, l337x_results = await asyncio.gather(yts_task, l337x_task)
-    return yts_results, l337x_results
+    tpb_results, yts_results, l337x_results = await asyncio.gather(
+        tpb_task, yts_task, l337x_task
+    )
+    extra_results = list(tpb_results) + list(l337x_results)
+    # sort extras by seeds, best first
+    extra_results.sort(key=lambda x: int(x.get("seeds", 0) or 0), reverse=True)
+    return yts_results, extra_results
 
 
 # ─── Format results as Telegram message ───────────────────────────────────────
@@ -292,26 +400,32 @@ def format_torrent_results(yts: list, l337x: list, query: str) -> tuple:
             lines.append(f"\n<i>+{len(yts)-3} more on YTS</i>")
 
     if l337x:
-        lines.append("\n━━━━ 🔍 1337x ━━━━")
-        for item in l337x[:5]:
+        lines.append("\n━━━━ 🧲 Available downloads ━━━━")
+        for item in l337x[:6]:
             seeds = item.get("seeds", 0)
             size = item.get("size", "?")
+            src = item.get("source", "")
             seed_icon = "🟢" if seeds > 50 else ("🟡" if seeds > 10 else "🔴")
+            short_title = item['title'][:55]
             lines.append(
-                f"\n{seed_icon} <b>{item['title'][:60]}</b>\n"
-                f"   Size: {size}  Seeds: {seeds}"
+                f"\n{seed_icon} <b>{short_title}</b>\n"
+                f"   Size: {size}  Seeds: {seeds}  [{src}]"
             )
-            # Cache the detail URL and put only a short key in callback_data
-            # (Telegram limits callback_data to 64 bytes).
-            url = item.get("detail_url", "")
-            key = _magnet_key(url)
-            _cache_put(_L337X_URLS, key, url)
-            buttons.append([
-                InlineKeyboardButton(
-                    f"🔗 Get link — {item['title'][:35]}",
-                    callback_data=f"torrent_magnet#{key}"
-                )
-            ])
+            magnet = item.get("magnet", "")
+            if magnet:
+                # TPB: direct magnet — cache it and deliver via callback
+                key = _magnet_key(magnet)
+                _cache_put(_YTS_MAGNETS, key, magnet)
+                label = f"🧲 Get — {short_title[:30]}"
+                cb = f"yts_magnet#{key}"
+            else:
+                # 1337x: only a detail page; resolve its magnet on tap
+                url = item.get("detail_url", "")
+                key = _magnet_key(url)
+                _cache_put(_L337X_URLS, key, url)
+                label = f"🔗 Get link — {short_title[:28]}"
+                cb = f"torrent_magnet#{key}"
+            buttons.append([InlineKeyboardButton(label, callback_data=cb)])
 
     buttons.append([
         InlineKeyboardButton("❌ Close", callback_data="torrent_close")
